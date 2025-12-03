@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Warden's Sanctum - Play in Browser</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Georgia', serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            padding: 30px 20px;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            color: #c7a64a;
+            text-shadow: 0 0 20px rgba(199, 166, 74, 0.5);
+            margin-bottom: 10px;
+            letter-spacing: 2px;
+        }
+
+        .tagline {
+            font-size: 1.1em;
+            color: #9b9b9b;
+            font-style: italic;
+            margin-bottom: 20px;
+        }
+
+        .game-container {
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid #c7a64a;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+            margin-bottom: 20px;
+        }
+
+        #terminal {
+            background: #0a0a0a;
+            border: 1px solid #c7a64a;
+            border-radius: 5px;
+            padding: 15px;
+            min-height: 400px;
+            max-height: 600px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #00ff00;
+            margin-bottom: 15px;
+        }
+
+        #terminal::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        #terminal::-webkit-scrollbar-track {
+            background: #1a1a1a;
+        }
+
+        #terminal::-webkit-scrollbar-thumb {
+            background: #c7a64a;
+            border-radius: 5px;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 10px;
+        }
+
+        #userInput {
+            flex: 1;
+            background: #1a1a1a;
+            border: 2px solid #c7a64a;
+            border-radius: 5px;
+            padding: 10px;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+
+        #userInput:focus {
+            outline: none;
+            border-color: #d4b15e;
+            box-shadow: 0 0 10px rgba(199, 166, 74, 0.3);
+        }
+
+        #userInput:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        button {
+            background: linear-gradient(135deg, #c7a64a 0%, #8b7332 100%);
+            color: #1a1a2e;
+            padding: 10px 25px;
+            font-size: 1em;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Georgia', serif;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(199, 166, 74, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .status {
+            background: rgba(199, 166, 74, 0.1);
+            border: 1px solid rgba(199, 166, 74, 0.3);
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 15px;
+            text-align: center;
+            font-size: 0.9em;
+        }
+
+        .status.loading {
+            color: #c7a64a;
+        }
+
+        .status.ready {
+            color: #4ade80;
+        }
+
+        .status.error {
+            color: #ef4444;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            justify-content: center;
+        }
+
+        .info {
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 0.9em;
+            border: 1px solid rgba(199, 166, 74, 0.3);
+        }
+
+        .info h3 {
+            color: #c7a64a;
+            margin-bottom: 10px;
+        }
+
+        .info ul {
+            margin-left: 20px;
+            margin-top: 10px;
+        }
+
+        .info li {
+            margin: 5px 0;
+        }
+
+        .terminal-line {
+            margin: 2px 0;
+            word-wrap: break-word;
+        }
+
+        .user-input-line {
+            color: #c7a64a;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2em;
+            }
+            
+            .input-container {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Warden's Sanctum</h1>
+            <p class="tagline">Play in Your Browser</p>
+        </header>
+
+        <div class="game-container">
+            <div id="status" class="status loading">Loading Python environment...</div>
+            
+            <div id="terminal"></div>
+            
+            <div class="input-container">
+                <input 
+                    type="text" 
+                    id="userInput" 
+                    placeholder="Enter your choice..." 
+                    disabled
+                    autocomplete="off"
+                >
+                <button id="submitBtn" disabled>Submit</button>
+            </div>
+
+            <div class="controls">
+                <button id="startBtn" disabled>Start Game</button>
+                <button id="restartBtn" disabled>Restart</button>
+            </div>
+        </div>
+
+        <div class="info">
+            <h3>How to Play</h3>
+            <ul>
+                <li>Wait for the game to load (may take a minute on first visit)</li>
+                <li>Click "Start Game" to begin</li>
+                <li>Read the story text as it appears</li>
+                <li>When prompted, type the number of your choice and press Enter or click Submit</li>
+                <li>Click "Restart" at any time to start over</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        let pyodide;
+        let gameCode = '';
+        let isRunning = false;
+        let inputResolver = null;
+        let outputBuffer = [];
+
+        const terminal = document.getElementById('terminal');
+        const userInput = document.getElementById('userInput');
+        const submitBtn = document.getElementById('submitBtn');
+        const startBtn = document.getElementById('startBtn');
+        const restartBtn = document.getElementById('restartBtn');
+        const status = document.getElementById('status');
+
+        function updateStatus(message, type = 'loading') {
+            status.textContent = message;
+            status.className = `status ${type}`;
+        }
+
+        function appendToTerminal(text, isUserInput = false) {
+            const line = document.createElement('div');
+            line.className = isUserInput ? 'terminal-line user-input-line' : 'terminal-line';
+            line.textContent = text;
+            terminal.appendChild(line);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function clearTerminal() {
+            terminal.innerHTML = '';
+        }
+
+        async function loadPyodide() {
+            try {
+                updateStatus('Loading Python environment...', 'loading');
+                pyodide = await loadPyodide({
+                    indexURL: "https://cdn.jsdelivr.net/pyodide/v0.24.1/full/"
+                });
+                
+                updateStatus('Downloading game code...', 'loading');
+                const response = await fetch('https://raw.githubusercontent.com/TheEmbersOfTwilight/Text-Adventure1/main/Wardens-Sanctum.py');
+                gameCode = await response.text();
+                
+                // Remove the copyright header for cleaner display
+                gameCode = gameCode.split('\n').filter((line, i) => i >= 4).join('\n');
+                
+                updateStatus('Ready to play!', 'ready');
+                startBtn.disabled = false;
+                restartBtn.disabled = false;
+            } catch (error) {
+                updateStatus('Error loading game: ' + error.message, 'error');
+                console.error(error);
+            }
+        }
+
+        function setupPythonIO() {
+            pyodide.runPython(`
+import sys
+from js import outputBuffer, inputResolver
+
+class WebIO:
+    def write(self, text):
+        if text and text.strip():
+            outputBuffer.append(text)
+    
+    def flush(self):
+        pass
+
+sys.stdout = WebIO()
+sys.stderr = WebIO()
+
+def web_input(prompt=''):
+    if prompt:
+        outputBuffer.append(prompt)
+    return inputResolver()
+            `);
+        }
+
+        async function processOutput() {
+            while (outputBuffer.length > 0) {
+                const text = outputBuffer.shift();
+                if (text) {
+                    appendToTerminal(text);
+                }
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+        }
+
+        async function waitForInput() {
+            return new Promise((resolve) => {
+                inputResolver = resolve;
+                userInput.disabled = false;
+                userInput.focus();
+                submitBtn.disabled = false;
+            });
+        }
+
+        async function runGame() {
+            if (isRunning) return;
+            
+            isRunning = true;
+            clearTerminal();
+            userInput.disabled = true;
+            submitBtn.disabled = true;
+            startBtn.disabled = true;
+            restartBtn.disabled = true;
+            
+            try {
+                setupPythonIO();
+                
+                // Replace input() calls with our web_input
+                const modifiedCode = gameCode.replace(/input\(\)/g, 'web_input()');
+                
+                // Run the game in a non-blocking way
+                const runCode = `
+${modifiedCode}
+                `;
+                
+                // Execute code asynchronously
+                const codeLines = modifiedCode.split('\n');
+                let currentLine = 0;
+                
+                while (currentLine < codeLines.length && isRunning) {
+                    const line = codeLines[currentLine].trim();
+                    
+                    if (line.includes('web_input()')) {
+                        await processOutput();
+                        const userResponse = await waitForInput();
+                        pyodide.globals.set('_user_response', userResponse);
+                        pyodide.runPython(`_user_response_var = _user_response`);
+                        currentLine++;
+                    } else {
+                        try {
+                            pyodide.runPython(line);
+                        } catch (e) {
+                            // Handle execution
+                        }
+                        await processOutput();
+                        currentLine++;
+                    }
+                    
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                }
+                
+            } catch (error) {
+                appendToTerminal('\n[Game Error: ' + error.message + ']');
+                console.error(error);
+            } finally {
+                isRunning = false;
+                userInput.disabled = true;
+                submitBtn.disabled = true;
+                startBtn.disabled = false;
+                restartBtn.disabled = false;
+                await processOutput();
+            }
+        }
+
+        function handleSubmit() {
+            const value = userInput.value.trim();
+            if (value && inputResolver) {
+                appendToTerminal('> ' + value, true);
+                userInput.value = '';
+                userInput.disabled = true;
+                submitBtn.disabled = true;
+                const resolver = inputResolver;
+                inputResolver = null;
+                resolver(value);
+            }
+        }
+
+        // Event listeners
+        submitBtn.addEventListener('click', handleSubmit);
+        
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                handleSubmit();
+            }
+        });
+
+        startBtn.addEventListener('click', runGame);
+        
+        restartBtn.addEventListener('click', () => {
+            isRunning = false;
+            inputResolver = null;
+            clearTerminal();
+            userInput.value = '';
+            userInput.disabled = true;
+            submitBtn.disabled = true;
+            startBtn.disabled = false;
+            updateStatus('Ready to play!', 'ready');
+        });
+
+        // Initialize
+        loadPyodide();
+    </script>
+</body>
+</html>
