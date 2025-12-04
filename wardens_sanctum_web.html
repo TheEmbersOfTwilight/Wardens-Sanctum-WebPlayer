@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Warden's Sanctum - Web Player</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Georgia', serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: #e0e0e0;
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .game-container {
+            max-width: 800px;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid #c7a64a;
+            border-radius: 10px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+        }
+
+        h1 {
+            font-size: 2.5em;
+            color: #c7a64a;
+            text-shadow: 0 0 20px rgba(199, 166, 74, 0.5);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        #text-display {
+            min-height: 200px;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+            line-height: 1.8;
+        }
+
+        #text-display p {
+            margin-bottom: 15px;
+        }
+
+        .choice-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .choice-button {
+            background: linear-gradient(135deg, #c7a64a 0%, #8b7332 100%);
+            color: #1a1a2e;
+            padding: 15px 30px;
+            font-size: 1.1em;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(199, 166, 74, 0.4);
+            font-family: 'Georgia', serif;
+            text-align: left;
+        }
+
+        .choice-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(199, 166, 74, 0.6);
+        }
+
+        .choice-button:active {
+            transform: translateY(-1px);
+        }
+
+        .choice-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .typing-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 1.2em;
+            background: #c7a64a;
+            margin-left: 2px;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 49% { opacity: 1; }
+            50%, 100% { opacity: 0; }
+        }
+
+        .game-over {
+            color: #ff6b6b;
+            font-size: 1.5em;
+            font-weight: bold;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .restart-button {
+            background: linear-gradient(135deg, #ff6b6b 0%, #c92a2a 100%);
+            margin-top: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .game-container {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 2em;
+            }
+            
+            .choice-button {
+                padding: 12px 20px;
+                font-size: 1em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <h1>Warden's Sanctum</h1>
+        <div id="text-display"></div>
+        <div id="choices" class="choice-buttons"></div>
+    </div>
+
+    <script>
+        // Game state variables
+        let gameState = {
+            Razor: 0,
+            Wand: false,
+            door1: false,
+            potion1: false,
+            timewasted: false,
+            scars: false,
+            flowers_collected: false,
+            water_collected: false,
+            infinite_razor_counter: 0,
+            powerupgraded: 0
+        };
+
+        const textDisplay = document.getElementById('text-display');
+        const choicesDiv = document.getElementById('choices');
+        let currentText = '';
+        let isTyping = false;
+
+        // Typing effect function
+        async function typeText(text, delay = 30) {
+            return new Promise(resolve => {
+                isTyping = true;
+                const p = document.createElement('p');
+                textDisplay.appendChild(p);
+                let index = 0;
+                
+                const cursor = document.createElement('span');
+                cursor.className = 'typing-cursor';
+                p.appendChild(cursor);
+
+                const interval = setInterval(() => {
+                    if (index < text.length) {
+                        cursor.insertAdjacentText('beforebegin', text[index]);
+                        index++;
+                        textDisplay.scrollTop = textDisplay.scrollHeight;
+                    } else {
+                        clearInterval(interval);
+                        cursor.remove();
+                        isTyping = false;
+                        resolve();
+                    }
+                }, delay);
+            });
+        }
+
+        async function wait(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function clearChoices() {
+            choicesDiv.innerHTML = '';
+        }
+
+        function disableChoices() {
+            const buttons = choicesDiv.querySelectorAll('button');
+            buttons.forEach(btn => btn.disabled = true);
+        }
+
+        function createChoice(text, callback) {
+            const button = document.createElement('button');
+            button.className = 'choice-button';
+            button.textContent = text;
+            button.onclick = async () => {
+                disableChoices();
+                await callback();
+            };
+            choicesDiv.appendChild(button);
+        }
+
+        function gameOver() {
+            const div = document.createElement('div');
+            div.className = 'game-over';
+            div.textContent = 'Game Over';
+            textDisplay.appendChild(div);
+            
+            const restartBtn = document.createElement('button');
+            restartBtn.className = 'choice-button restart-button';
+            restartBtn.textContent = 'Restart Game';
+            restartBtn.onclick = () => location.reload();
+            choicesDiv.innerHTML = '';
+            choicesDiv.appendChild(restartBtn);
+        }
+
+        // Game flow
+        async function startGame() {
+            await typeText("Welcome to 'Warden's Sanctum', a text-based adventure game");
+            await wait(1000);
+            await typeText("When you are given a choice, click the button associated with the option you would like to choose");
+            await wait(1000);
+            await typeText("Have a good experience");
+            await wait(3000);
+            await typeText("You awaken in a dark, damp room on a grimy bed");
+            await wait(500);
+            await typeText("You see a shelf on the opposite side of the room from where you currently are.");
+            await wait(500);
+            await typeText("As you get up from the bed, you see that it is being held up by chains connected to the wall.");
+            await wait(500);
+            await typeText("You also see that one wall of the room is made of metal bars.");
+            await wait(500);
+            
+            await cellLoop();
+        }
+
+        async function cellLoop() {
+            while (!gameState.Wand) {
+                clearChoices();
+                await typeText("What do you do?");
+                await wait(500);
+                
+                await new Promise(resolve => {
+                    createChoice("1. Look through the bars", async () => {
+                        await lookThroughBars();
+                        resolve();
+                    });
+                    createChoice("2. Look at the shelf", async () => {
+                        await lookAtShelf();
+                        resolve();
+                    });
+                    createChoice("3. Inspect the bed", async () => {
+                        await inspectBed();
+                        resolve();
+                    });
+                });
+            }
+            
+            await typeText("You now see a silhouette of a door on the wall next to the bed");
+            await wait(500);
+            await doorLoop();
+        }
+
+        async function lookThroughBars() {
+            await typeText("You see many cells along the hall on the other side of the bars.");
+            await wait(500);
+            await typeText("What do you do?");
+            await wait(500);
+            
+            clearChoices();
+            await new Promise(resolve => {
+                createChoice("1. Call out", async () => {
+                    await typeText("You call out down the empty halls and get no response");
+                    await wait(500);
+                    await typeText("You walk back into the cell");
+                    await wait(500);
+                    resolve();
+                });
+                createChoice("2. Go back", async () => {
+                    await typeText("You walk back into the cell");
+                    await wait(500);
+                    resolve();
+                });
+            });
+        }
+
+        async function lookAtShelf() {
+            if (gameState.Razor >= 1) {
+                if (gameState.infinite_razor_counter < 20) {
+                    await typeText("You look at the shelf and see nothing of interest, you walk back into the middle of the cell");
+                    await wait(500);
+                    gameState.infinite_razor_counter++;
+                } else {
+                    await typeText("You look at the shelf and see another razor identical to the one you picked up earlier");
+                    await wait(500);
+                    await typeText("Are you happy now, Lennon?");
+                    await wait(500);
+                    await typeText("What do you do?");
+                    await wait(500);
+                    
+                    clearChoices();
+                    await new Promise(resolve => {
+                        createChoice("1. Pick up the razor", async () => {
+                            await typeText("You pick up the razor and walk back to the middle of the cell");
+                            await wait(500);
+                            gameState.infinite_razor_counter++;
+                            gameState.Razor++;
+                            resolve();
+                        });
+                        createChoice("2. Leave it", async () => {
+                            await typeText("You leave it and walk back to the middle of the cell");
+                            await wait(500);
+                            gameState.infinite_razor_counter++;
+                            resolve();
+                        });
+                    });
+                }
+            } else {
+                await typeText("You look at the shelf and see a dull, old style razor");
+                await wait(500);
+                await typeText("What do you do?");
+                await wait(500);
+                
+                clearChoices();
+                await new Promise(resolve => {
+                    createChoice("1. Pick up the razor", async () => {
+                        await typeText("You pick up the razor and walk back to the middle of the cell");
+                        await wait(500);
+                        gameState.Razor = 1;
+                        resolve();
+                    });
+                    createChoice("2. Leave it", async () => {
+                        await typeText("You leave it and walk back to the middle of the cell");
+                        await wait(500);
+                        resolve();
+                    });
+                });
+            }
+        }
+
+        async function inspectBed() {
+            await typeText("You inspect the bed closer and see a compartment hidden under the mattress");
+            await wait(500);
+            await typeText("In the compartment you see a stick that tapers near the end, it has complex designs carved into it");
+            await wait(500);
+            await typeText("You feel an aura of energy emanating from it and your fingers tingle as you hold it");
+            await wait(500);
+            await typeText("You walk back into the middle of the cell");
+            await wait(500);
+            gameState.Wand = true;
+        }
+
+        async function doorLoop() {
+            while (!gameState.door1) {
+                await typeText("What do you do?");
+                await wait(500);
+                
+                clearChoices();
+                await new Promise(resolve => {
+                    createChoice("1. Inspect the silhouette", async () => {
+                        await typeText("You inspect the silhouette and see that there is a small hole within it that would fit the stick");
+                        await wait(500);
+                        await typeText("You stick one end of the stick into the hole, it does not work");
+                        await wait(2000);
+                        await typeText("A few seconds later you realize it must be the other side that works, then stick that end in");
+                        await wait(500);
+                        await typeText("The door swings open and you walk through");
+                        await wait(500);
+                        gameState.door1 = true;
+                        resolve();
+                    });
+                    createChoice("2. Inspect the stick", async () => {
+                        await typeText("You inspect the stick and see that its designs are reminiscent of those you have seen in drawings of wands in fantasy books");
+                        await wait(500);
+                        resolve();
+                    });
+                });
+            }
+            
+            await typeText("You see a flash of light and your vison goes dark");
+            await wait(2000);
+            await potionRoom();
+        }
+
+        async function potionRoom() {
+            await typeText("You awake from whatever has affected you, you have no idea how long you've been out but it feels as though it has been a while");
+            await wait(500);
+            await typeText("You see that you are in a room filled with books and beakers of all sorts, many of the beakers are filled with colorful liquids, while others are empty");
+            await wait(500);
+            
+            while (!gameState.potion1) {
+                await typeText("What do you do?");
+                await wait(500);
+                
+                clearChoices();
+                await new Promise(resolve => {
+                    createChoice("1. Inspect the books", async () => {
+                        await typeText("You take a closer look at the books and see a few of interest");
+                        await wait(500);
+                        await typeText("The Secrets of Divination");
+                        await wait(500);
+                        await typeText("The Sorcerer's Handbook of Draughts");
+                        await wait(500);
+                        await typeText("How To Aid and Keep Thy Friends Forever");
+                        await wait(500);
+                        await typeText("You decide against taking any of them as you feel a strange aura around them");
+                        await wait(500);
+                        resolve();
+                    });
+                    createChoice("2. Inspect the beakers", async () => {
+                        await typeText("You look closely at the beakers and see that one has a design on the glass identical to the one on the stick");
+                        await wait(500);
+                        await typeText("It has a strange purple liquid inside that seems to shimmer and move on its own");
+                        await wait(500);
+                        await typeText("You grab the beaker and pocket it, then hear a strange noise just a few moments later");
+                        await wait(2000);
+                        gameState.potion1 = true;
+                        resolve();
+                    });
+                });
+            }
+            
+            await meetWarden();
+        }
+
+        async function meetWarden() {
+            await typeText("You see a tall, robed figure approach you and loudly bellow");
+            await wait(500);
+            await typeText('"What are you doing in my sanctum?"');
+            await wait(500);
+            
+            while (true) {
+                await typeText("What do you say?");
+                await wait(500);
+                
+                clearChoices();
+                const result = await new Promise(resolve => {
+                    createChoice("1. I'm lost and found this place", async () => {
+                        await typeText('"How did you find this place, then? Did you come here from the prison?"');
+                        await wait(500);
+                        resolve('continue');
+                    });
+                    createChoice("2. I'm your new apprentice", async () => {
+                        await typeText('"I do not remember hiring a new apprentice"');
+                        await wait(500);
+                        await typeText('"You are an imposter!"');
+                        await wait(500);
+                        await typeText("He chants in a language you cannot understand and you feel light headed, you fall and your mind goes blank.");
+                        await wait(500);
+                        await typeText("Game Over");
+                        await wait(500);
+                        resolve('gameover');
+                    });
+                });
+                
+                if (result === 'gameover') {
+                    gameOver();
+                    return;
+                }
+                if (result === 'continue') break;
+            }
+            
+            await guestRoom();
+        }
+
+        async function guestRoom() {
+            await typeText('"Well then, I will help you for a short while. But you will have to assist me for a time."');
+            await wait(500);
+            await typeText("The man walks you to a small room down a hall that appears as he walks over to the wall where he came from");
+            await wait(500);
+            await typeText("Inside the room is a small bed with what appears to be a down mattress");
+            await wait(500);
+            await typeText("There is also a side table next to the bed and a dresser on the opposite wall");
+            await wait(500);
+            await typeText('"Get some rest, and come talk to me in the morning"');
+            await wait(500);
+            
+            while (true) {
+                await typeText("What do you do?");
+                await wait(500);
+                
+                clearChoices();
+                const result = await new Promise(resolve => {
+                    createChoice("1. Go to sleep", async () => {
+                        await typeText("You lie down on the bed and quickly fall asleep");
+                        await wait(2000);
+                        resolve('sleep');
+                    });
+                    createChoice("2. Look in the dresser", async () => {
+                        await typeText("The dresser appears to be empty except for some old robes");
+                        await wait(500);
+                        resolve('continue');
+                    });
+                    createChoice("3. Check the side table", async () => {
+                        await typeText("There's nothing but dust on the side table");
+                        await wait(500);
+                        resolve('continue');
+                    });
+                });
+                
+                if (result === 'sleep') break;
+            }
+            
+            await morning();
+        }
+
+        async function morning() {
+            await typeText("You awake the next morning feeling refreshed");
+            await wait(500);
+            await typeText("You get up from the bed and walk out into the main room where the robed figure was");
+            await wait(500);
+            await typeText("You see that he is busy mixing a potion at a large table covered in beakers and books");
+            await wait(500);
+            
+            while (true) {
+                await typeText("What do you do?");
+                await wait(500);
+                
+                clearChoices();
+                const result = await new Promise(resolve => {
+                    createChoice("1. Approach him", async () => {
+                        await typeText("You walk up to the robed figure");
+                        await wait(500);
+                        resolve('approach');
+                    });
+                    createChoice("2. Look around the room first", async () => {
+                        await typeText("You see many strange artifacts and bottles, but nothing you understand");
+                        await wait(500);
+                        resolve('continue');
+                    });
+                });
+                
+                if (result === 'approach') break;
+            }
+            
+            await getQuest();
+        }
+
+        async function getQuest() {
+            await typeText("He looks up as you approach and speaks");
+            await wait(500);
+            await typeText('"Ah, you are awake. Good, I have a task for you."');
+            await wait(500);
+            await typeText('"I need you to gather some ingredients for a potion I am working on."');
+            await wait(500);
+            
+            while (true) {
+                await typeText("What do you say?");
+                await wait(500);
+                
+                clearChoices();
+                const result = await new Promise(resolve => {
+                    createChoice("1. What kind of potion is it?", async () => {
+                        await typeText('"That is not your concern for now. Focus on the task at hand."');
+                        await wait(500);
+                        resolve('continue');
+                    });
+                    createChoice("2. What ingredients do you need?", async () => {
+                        resolve('ingredients');
+                    });
+                    createChoice("3. Why should I help you?", async () => {
+                        await typeText('"Remember, I am helping you. This is a fair exchange."');
+                        await wait(500);
+                        resolve('continue');
+                    });
+                });
+                
+                if (result === 'ingredients') break;
+            }
+            
+            await typeText('"First, go to the forest outside and gather some moonshade flowers."');
+            await wait(500);
+            await typeText('"Next, go to the river and collect some water from the deepest part."');
+            await wait(500);
+            await typeText('"Finally, return here and I will show you how to make the potion."');
+            await wait(500);
+            await typeText("He hands you a small bag and a vial");
+            await wait(500);
+            await typeText("He points you towards a door that appears on the wall as he gestures");
+            await wait(500);
+            await typeText('"Go through there to reach the forest."');
+            await wait(500);
+            
+            while (true) {
+                await typeText("What do you do?");
+                await wait(500);
+                
+                clearChoices();
+                const result = await new Promise(resolve => {
+                    createChoice("1. Go through the door", async () => {
+                        resolve('go');
+                    });
+                    createChoice("2. Ask more questions", async () => {
+                        await typeText('"There is no time for more questions. Go now."');
+                        await wait(500);
+                        resolve('continue');
+                    });
+                });
+                
+                if (result === 'go') break;
+            }
+            
+            await forest();
+        }
+
+        async function forest() {
+            await typeText("You walk through the door and find yourself next to a tree in a dense forest, with a dilapidated stone building off in the distance");
+            await wait(500);
+            await typeText("It appears to be the building that you awoke in earlier");
+            await wait(500);
+            await typeText("You feel a strange pull towards a clearing deeper in the forest");
+            await wait(500);
+            await typeText("You walk towards the clearing, feeling more and more drawn to it with each step");
+            await wait(500);
+            await typeText("As you approach the clearing, the pull suddenly fades away");
+            await wait(500);
+            await typeText("In the center of the clearing, you see a patch of glowing flowers");
+            await wait(500);
+            await typeText("You walk over to the flowers and see that they are indeed moonshade flowers");
+            await wait(500);
+            await typeText("You move closer and inspect them closely");
+            await wait(500);
+            await typeText("Their stems seem to be incredibly thick and sturdy, almost like vines");
+            await wait(500);
+            await typeText("You get the feeling that you cannot pick them without using some sort of sharp object or ripping them out by the roots");
+            await wait(500);
+            
+            while (true) {
+                await typeText("What do you do?");
+                await wait(500);
+                
+                clearChoices();
+                const result = await new Promise(resolve => {
+                    createChoice("1. Pick the flowers", async () => {
+                        if (gameState.Razor >= 1) {
+                            await typeText("You remember the razor you picked up earlier");
+                            await wait(500);
+                            await typeText("You use the razor to carefully cut the flowers from their stems, being careful not to damage them");
+                            await wait(500);
+                            await typeText("You gather a small bouquet of the flowers");
+                            await wait(500);
+                            gameState.flowers_collected = true;
+                        } else {
+                            await typeText("You try to pick the flowers by hand, but their stems are too thick and sturdy to break");
+                            await wait(500);
+                            await typeText("After several frustrating minutes, you are finally able to rip a few flowers free");
+                            await wait(500);
+                            gameState.timewasted = true;
+                            gameState.flowers_collected = true;
+                        }
+                        resolve('picked');
+                    });
+                    createChoice("2. Leave empty handed", async () => {
+                        await typeText("You decide to leave the flowers alone");
+                        await wait(500);
+                        gameState.flowers_collected = false;
+                        resolve('leave');
+                    });
+                });
+                
+                if (result === 'picked' || result === 'leave') break;
+            }
+            
+            await river();
+        }
+
+        async function river() {
+            await typeText("You head towards the stone building");
+            await wait(500);
+            await typeText("It has a similar pull to the clearing, but not as strong");
+            await wait(500);
+            await typeText("As you approach the building, you see that there is a small river running alongside it");
+            await wait(500);
+            await typeText("You walk over to the river and see that it is quite deep in the center");
+            await wait(500);
+            await typeText("You wade into the river, thinking about how this must be the river the robed figure mentioned");
+            await wait(500);
+            
+            while (true) {
+                await typeText("What do you do?");
+                await wait(500);
+                
+                clearChoices();
+                const result = await new Promise(resolve => {
+                    createChoice("1. Collect water from the river", async () => {
+                        await typeText("You wade towards the deepest part of the river you can find and scoop up some water into the vial");
+                        await wait(500);
+                        gameState.water_collected = true;
+                        
+                        if (gameState.timewasted) {
+                            await typeText("As you finish collecting the water, you hear a loud roar coming from the forest");
+                            await wait(500);
+                            await typeText("What do you do?");
+                            await wait(500);
+                            
+                            clearChoices();
+                            const creatureResult = await new Promise(res => {
+                                createChoice("1. Run away", async () => {
+                                    await typeText("You see a large creature slowly emerge from the trees as you run off towards the tree you entered from");
+                                    await wait(500);
+                                    await typeText("The creature is massive, with sharp claws and teeth, and it looks very angry");
+                                    await wait(500);
+                                    await typeText("As you reach the tree, the creature lets out a deafening roar and charges towards you");
+                                    await wait(500);
+                                    await typeText("The creature tackles you to the ground, and you feel its sharp claws digging into your flesh");
+                                    await wait(500);
+                                    await typeText("You are barely able to wiggle free and jump through a hole that appears in the tree trunk as you do so");
+                                    await wait(500);
+                                    gameState.scars = true;
+                                    await typeText("As you emerge from the hole, you feel your body aching and you notice several deep scratches on your arms and legs");
+                                    await wait(500);
+                                    await typeText("You see that you are back in the robed figure's sanctum");
+                                    await wait(500);
+                                    res('survive');
+                                });
+                                createChoice("2. Stay and investigate", async () => {
+                                    await typeText("You decide to stay and investigate the noise");
+                                    await wait(500);
+                                    await typeText("As you move deeper into the forest, you see a large creature emerge from the trees");
+                                    await wait(500);
+                                    await typeText("The creature is massive, with sharp claws and teeth, and it looks very angry");
+                                    await wait(500);
+                                    await typeText("As it sees you, it suddenly cries out with a deep, guttural sound and charges towards you");
+                                    await wait(500);
+                                    await typeText("You try to run, but the creature is too fast and tackles you to the ground");
+                                    await wait(500);
+                                    await typeText("You try your best to fight back, but the creature's strength is overwhelming");
+                                    await wait(500);
+                                    await typeText("You begin to feel lightheaded and your vision goes dark");
+                                    await wait(500);
+                                    await typeText("Game Over");
+                                    await wait(500);
+                                    res('gameover');
+                                });
+                            });
+                            
+                            if (creatureResult === 'gameover') {
+                                gameOver();
+                                return;
+                            }
+                        } else {
+                            await typeText("You walk back towards the tree and see a hole appearing in the trunk as you approach");
+                            await wait(500);
+                            await typeText("You step through the hole and see yourself back in the robed figure's sanctum");
+                            await wait(500);
+                        }
+                        resolve('collected');
+                    });
+                    createChoice("2. Leave the river", async () => {
+                        await typeText("You walk back towards the tree and see a hole appearing in the trunk as you approach");
+                        await wait(500);
+                        await typeText("You step through the hole and see yourself back in the robed figure's sanctum");
+                        await wait(500);
+                        resolve('leave');
+                    });
+                });
+                
+                if (result === 'collected' || result === 'leave') break;
+            }
+            
+            await returnToWarden();
+        }
+
+        async function returnToWarden() {
+            if (gameState.flowers_collected && gameState.water_collected) {
+                await typeText("You walk back into the sanctum and approach the robed figure");
+                await wait(500);
+                await typeText('"Ah, you have returned. Do you have the ingredients?"');
+                await wait(500);
+                await typeText("You show him the flowers and the vial of water");
+                await wait(500);
+                await typeText('"Excellent work. Now, watch closely as I show you how to make the potion."');
+                await wait(500);
+                await typeText("He begins to mix the ingredients together in a large beaker, chanting softly under his breath");
+                await wait(500);
+                await typeText("As he works, you feel a strange energy building in the room");
+                await wait(500);
+                await typeText("Finally, he finishes the potion and hands it to you");
+                await wait(500);
+                await typeText('"Here, take this potion. It will grant you great power, but use it wisely."');
+                await wait(500);
+                await typeText("You take the potion and feel a surge of energy coursing through your body");
+                await wait(500);
+                gameState.powerupgraded = 1;
+                
+                if (gameState.scars) {
+                    await typeText("The scratches on your arms and legs begin to heal rapidly, leaving behind faint scars as a reminder of your encounter in the forest");
+                    await wait(500);
+                    gameState.scars = false;
+                }
+                
+                await labyrinth();
+            } else {
+                if (!gameState.flowers_collected && !gameState.water_collected) {
+                    await typeText('"You have returned empty handed. I am disappointed."');
+                } else if (!gameState.flowers_collected) {
+                    await typeText('"You did not gather the flowers. This is unacceptable."');
+                } else {
+                    await typeText('"You did not gather the water. This is unacceptable."');
+                }
+                await wait(500);
+                await typeText("He chants in a language you cannot understand and you feel light headed, you fall and your mind goes blank.");
+                await wait(500);
+                await typeText("Game Over");
+                await wait(500);
+                gameOver();
+            }
+        }
+
+        async function labyrinth() {
+            await typeText('"I will allow you to leave, but first, you must prove your worth."');
+            await wait(500);
+            await typeText('"Get through my labrinth alive, and you may go free."');
+            await wait(500);
+            await typeText("A door appears on the wall as he finishes speaking");
+            await wait(500);
+            await typeText("You walk through the door and find yourself in a dark maze");
+            await wait(500);
+            await typeText("You can hear strange noises coming from all around you");
+            await wait(500);
+            await typeText("You see that there are three paths in front of you");
+            await wait(500);
+            await typeText("One path is lit by torches, another is shrouded in darkness, and the last is filled with strange, glowing plants");
+            await wait(500);
+            
+            while (true) {
+                await typeText("What do you do?");
+                await wait(500);
+                
+                clearChoices();
+                const pathChoice = await new Promise(resolve => {
+                    createChoice("1. Take the torchlit path", () => resolve('torch'));
+                    createChoice("2. Take the dark path", () => resolve('dark'));
+                    createChoice("3. Take the glowing plant path", () => resolve('plants'));
+                });
+                
+                if (pathChoice === 'torch') {
+                    await torchPath();
+                    return;
+                } else if (pathChoice === 'dark') {
+                    await darkPath();
+                    return;
+                } else if (pathChoice === 'plants') {
+                    await plantPath();
+                    break;
+                }
+            }
+        }
+
+        async function torchPath() {
+            await typeText("You walk down the path lit by torches");
+            await wait(500);
+            await typeText("As you walk, you feel a strange presence following you");
+            await wait(500);
+            await typeText("You see shadows moving above you and hear whispers in your ear");
+            await wait(500);
+            await typeText("You see a small, dark creature jump down from the ceiling in front of you");
+            await wait(500);
+            await typeText("The creature is about a foot shorter that you, with sharp claws and teeth, and glowing red eyes");
+            await wait(500);
+            await typeText("Its eyes suddenly lose their glow and the creature's teeth and claws retract, revealing a small, timid looking animal");
+            await wait(500);
+            await typeText("The creature looks up at you with big, pleading eyes");
+            await wait(500);
+            
+            await typeText("What do you do?");
+            await wait(500);
+            
+            clearChoices();
+            const creatureChoice = await new Promise(resolve => {
+                createChoice("1. Help the creature", () => resolve('help'));
+                createChoice("2. Ignore the creature and keep walking", () => resolve('ignore'));
+            });
+            
+            if (creatureChoice === 'help') {
+                await typeText("You decide to help the creature");
+                await wait(500);
+                await typeText("You pick it up and carry it with you as you walk through the maze");
+                await wait(500);
+                await typeText("After a while, you see a light in the distance");
+                await wait(500);
+                await typeText("The creature jumps out mof your arms and its eyes begin to glow again");
+                await wait(500);
+                await typeText("It runs towards the light and disappears");
+                await wait(500);
+                await typeText("The light disappears moments later, and the torches around you extinguish");
+                await wait(500);
+                await typeText("You hear as deep rumbling and the walls around you begin to shake");
+                await wait(500);
+                
+                await typeText("What do you do?");
+                await wait(500);
+                
+                clearChoices();
+                await new Promise(resolve => {
+                    createChoice("1. Run", async () => {
+                        await typeText("You run as fast as you can back through the maze");
+                        await wait(500);
+                        await typeText("After what feels like an eternity, you see the point where you entered the maze");
+                        await wait(500);
+                        await typeText("Right before you reach it, a large piece of debris falls from above and blocks your path");
+                        await wait(500);
+                        await typeText("You turn around and see that the entire maze is collapsing in on itself");
+                        await wait(500);
+                        await typeText("A large piece of debris falls from above and hits you");
+                        await wait(500);
+                        await typeText("Game Over");
+                        await wait(500);
+                        gameOver();
+                        resolve();
+                    });
+                    createChoice("2. Stand your ground", async () => {
+                        await typeText("You stand your ground as the walls around you begin to shake violently");
+                        await wait(500);
+                        await typeText("The walls collapse in on you, and you are buried under the rubble");
+                        await wait(500);
+                        await typeText("Game Over");
+                        await wait(500);
+                        gameOver();
+                        resolve();
+                    });
+                });
+            } else {
+                await typeText("You decide to ignore the creature and keep walking");
+                await wait(500);
+                await typeText("As you walk, you feel a sharp pain in your back");
+                await wait(500);
+                await typeText("You turn around and see the creature biting into your back with its sharp teeth");
+                await wait(500);
+                await typeText("You try to shake it off, but it is too strong");
+                await wait(500);
+                await typeText("You feel yourself losing consciousness as the creature continues to bite into you");
+                await wait(500);
+                await typeText("Game Over");
+                await wait(500);
+                gameOver();
+            }
+        }
+
+        async function darkPath() {
+            await typeText("You walk down the dark path");
+            await wait(500);
+            await typeText("As you walk, you feel a cold breeze and hear strange whispers all around you");
+            await wait(500);
+            await typeText("Suddenly, you see a pair of glowing eyes staring at you from the darkness");
+            await wait(500);
+            await typeText("A shadowy figure emerges from the darkness, its eyes glowing with an eerie light");
+            await wait(500);
+            await typeText("The figure approaches you slowly, its movements fluid and unnatural");
+            await wait(500);
+            await typeText("As it gets closer, you can see that it is a tall, slender humanoid creature with long, sharp claws and teeth");
+            await wait(500);
+            await typeText("The creature lets out a low growl and lunges at you");
+            await wait(500);
+            await typeText("You try to dodge its attack, but it is too fast");
+            await wait(500);
+            await typeText("The creature sinks its claws into your flesh, and you feel a searing pain as it rips into you");
+            await wait(500);
+            await typeText("You try to fight back, but the creature's strength is overwhelming");
+            await wait(500);
+            await typeText("You begin to feel lightheaded and your vision goes dark");
+            await wait(500);
+            await typeText("Game Over");
+            await wait(500);
+            gameOver();
+        }
+
+        async function plantPath() {
+            await typeText("You walk down the path filled with glowing plants");
+            await wait(500);
+            await typeText("As you walk, you feel a strange sensation in your body");
+            await wait(500);
+            await typeText("The plants around you begin to glow brighter and brighter, until the entire path is bathed in a soft, ethereal light");
+            await wait(500);
+            await typeText("You feel a warmth spreading through your body, and you begin to feel more powerful and energized");
+            await wait(500);
+            gameState.powerupgraded++;
+            await typeText("You continue down the path, feeling stronger and more confident with each step");
+            await wait(500);
+            await typeText("You see a particularly large and vibrant plant up ahead");
+            await wait(500);
+            
+            await typeText("What do you do?");
+            await wait(500);
+            
+            clearChoices();
+            const plantChoice = await new Promise(resolve => {
+                createChoice("1. Inspect the plant", () => resolve('inspect'));
+                createChoice("2. Ignore the plant and keep walking", () => resolve('ignore'));
+            });
+            
+            if (plantChoice === 'inspect') {
+                await typeText("You walk over to the plant and inspect it closely");
+                await wait(500);
+                await typeText("As you touch the plant, you feel a sharp pain on your back");
+                await wait(500);
+                await typeText("You turn around and see that the plant has sprouted several sharp thorns that have pierced your skin");
+                await wait(500);
+                await typeText("You try to pull the thorns out, but they are deeply embedded in your flesh");
+                await wait(500);
+                gameState.scars = true;
+                await typeText("You are able to get away from the plant and slowly remove the thorns, but not before they leave behind several deep scratches on your back");
+                await wait(500);
+                await typeText("You continue down the path, feeling the scratches sting with each step");
+                await wait(500);
+            } else {
+                await typeText("You decide to ignore the plant and keep walking");
+                await wait(500);
+            }
+            
+            await typeText("After a while, you see a light in the distance");
+            await wait(500);
+            await typeText("You walk towards the light and see that it is the exit of the maze");
+            await wait(500);
+            await typeText("You step through the exit and find yourself back in the robed figure's sanctum");
+            await wait(500);
+            
+            await ending();
+        }
+
+        async function ending() {
+            await typeText("You approach the robed figure");
+            await wait(500);
+            await typeText('"You have proven your worth. You may go free."');
+            await wait(500);
+            await typeText("A door appears on the wall as he finishes speaking");
+            await wait(500);
+            await typeText("You walk through the door and find yourself outside, free at last");
+            await wait(500);
+            await typeText("You find yourself in a wide open field on the top of a hill, with a clear view of the sunrise in the distance");
+            await wait(500);
+            await typeText("You sit down on the grass and watch as the sun rises over the horizon, feeling a sense of peace and freedom wash over you");
+            await wait(5000);
+            await typeText("After a short while, you see a figure approaching you from the distance");
+            await wait(500);
+            await typeText("As the figure gets closer, you see that it is a person holding a map and a compass");
+            await wait(500);
+            await typeText("The person approaches you and speaks");
+            await wait(500);
+            await typeText('"Hello there, traveler"');
+            await wait(500);
+            await typeText('"You look like you have been through quite an adventure"');
+            await wait(500);
+            
+            if (gameState.scars) {
+                await typeText("They notice the scars on your arms and legs and raise an eyebrow");
+                await wait(500);
+                await typeText('"Those look painful, what happened to you?"');
+                await wait(500);
+                await typeText("You tell them about your encounter and how you barely escaped with your life");
+                await wait(500);
+                await typeText('"Wow, that sounds intense. You must be quite the survivor."');
+                await wait(500);
+            }
+            
+            await typeText('"I am heading for the next town over, would you like to join me?"');
+            await wait(500);
+            await typeText("You nod and stand up, ready to continue your journey");
+            await wait(500);
+            await typeText("To be continued...");
+            await wait(2000);
+            
+            const div = document.createElement('div');
+            div.style.cssText = 'color: #c7a64a; font-size: 1.5em; font-weight: bold; text-align: center; margin-top: 20px;';
+            div.textContent = 'The End';
+            textDisplay.appendChild(div);
+            
+            const restartBtn = document.createElement('button');
+            restartBtn.className = 'choice-button';
+            restartBtn.textContent = 'Play Again';
+            restartBtn.onclick = () => location.reload();
+            choicesDiv.innerHTML = '';
+            choicesDiv.appendChild(restartBtn);
+        }
+
+        // Start the game
+        startGame();
+    </script>
+</body>
+</html>
